@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { PanelRightOpen } from "lucide-react";
+import { PanelRightOpen, ChevronLeft, ChevronRight } from "lucide-react";
 
 import { useReaderBook } from "@/lib/use-reader-book";
 import { addBookmark } from "@/lib/backend-client";
@@ -27,6 +27,54 @@ export function ReaderView({ bookId, initialPage = 0 }: { bookId: string; initia
   const [fontSize, setFontSize] = useState<FontSize>("medium");
   const [readerTheme, setReaderTheme] = useState<ReaderTheme>("dark");
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
+  
+  const contentRef = useRef<HTMLDivElement>(null);
+
+  // JS-Магнит: идеально выравнивает страницу по границе колонок
+  const snapToPage = useCallback(() => {
+    if (contentRef.current) {
+      const scrollAmount = contentRef.current.clientWidth + 32; // ширина + gap
+      const currentScroll = contentRef.current.scrollLeft;
+      const currentPage = Math.round(currentScroll / scrollAmount);
+      const targetScroll = currentPage * scrollAmount;
+
+      // Скроллим только если отклонение больше 2px (защита от бесконечного цикла)
+      if (Math.abs(currentScroll - targetScroll) > 2) {
+        contentRef.current.scrollTo({ left: targetScroll, behavior: "smooth" });
+      }
+    }
+  }, []);
+
+  // Слушаем скролл (тачпад/свайпы) и центрируем страницу после остановки
+  useEffect(() => {
+    const container = contentRef.current;
+    if (!container) return;
+
+    let scrollTimeout: ReturnType<typeof setTimeout>;
+
+    const handleScroll = () => {
+      clearTimeout(scrollTimeout);
+      // Через 150мс после остановки скролла примагничиваем страницу
+      scrollTimeout = setTimeout(() => {
+        snapToPage();
+      }, 150);
+    };
+
+    container.addEventListener("scroll", handleScroll, { passive: true });
+    window.addEventListener("resize", snapToPage);
+
+    return () => {
+      container.removeEventListener("scroll", handleScroll);
+      window.removeEventListener("resize", snapToPage);
+      clearTimeout(scrollTimeout);
+    };
+  }, [snapToPage]);
+
+  // Выравнивание при смене шрифта (чтобы не застрять между страницами)
+  useEffect(() => {
+    const timer = setTimeout(snapToPage, 100);
+    return () => clearTimeout(timer);
+  }, [fontSize, snapToPage]);
 
   const handleBookmark = async () => {
     if (!book.isLive) {
@@ -34,9 +82,9 @@ export function ReaderView({ bookId, initialPage = 0 }: { bookId: string; initia
       return;
     }
     try {
-      await addBookmark(bookId, book.pageNumber, `Страница ${book.pageNumber + 1}`);
+      await addBookmark(bookId, book.pageNumber, `Глава ${book.pageNumber + 1}`);
       toast.success("Закладка успешно сохранена");
-    } catch (err) {
+    } catch {
       toast.error("Не удалось сохранить закладку");
     }
   };
@@ -52,9 +100,26 @@ export function ReaderView({ bookId, initialPage = 0 }: { bookId: string; initia
     toast.success(`${actionLabels[action]}: «${truncated}»`);
   };
 
+  // Перелистывание кнопками
+  const scrollPrevPage = () => {
+    if (contentRef.current) {
+      const scrollAmount = contentRef.current.clientWidth + 32;
+      const currentPage = Math.round(contentRef.current.scrollLeft / scrollAmount);
+      contentRef.current.scrollTo({ left: (currentPage - 1) * scrollAmount, behavior: "smooth" });
+    }
+  };
+
+  const scrollNextPage = () => {
+    if (contentRef.current) {
+      const scrollAmount = contentRef.current.clientWidth + 32;
+      const currentPage = Math.round(contentRef.current.scrollLeft / scrollAmount);
+      contentRef.current.scrollTo({ left: (currentPage + 1) * scrollAmount, behavior: "smooth" });
+    }
+  };
+
   if (book.error) {
     return (
-      <div className="flex h-screen items-center justify-center p-8 text-red-500 text-center bg-[#090713]">
+      <div className="flex h-[calc(100dvh-65px)] items-center justify-center p-8 text-red-500 text-center bg-[#090713]">
         {book.error}
       </div>
     );
@@ -63,84 +128,120 @@ export function ReaderView({ bookId, initialPage = 0 }: { bookId: string; initia
   return (
     <div
       className={cn(
-        "flex min-h-[calc(100vh-3.5rem)] flex-col transition-colors duration-300",
+        "flex h-[calc(100dvh-65px)] flex-col overflow-hidden transition-colors duration-300",
         readerTheme === "dark" && "bg-[#090713] text-[#f1f5f9]",
         readerTheme === "sepia" && "bg-[#f5e6c8] text-[#5b4636]"
       )}
     >
-      <ReaderToolbar
-        fontSize={fontSize}
-        readerTheme={readerTheme}
-        onFontSizeChange={setFontSize}
-        onReaderThemeChange={setReaderTheme}
-        currentChapter={book.heading}
-        bookTitle={book.bookTitle}
-        onBookmark={handleBookmark}
-      />
+      <div className="shrink-0 z-10 relative">
+        <ReaderToolbar
+          fontSize={fontSize}
+          readerTheme={readerTheme}
+          onFontSizeChange={setFontSize}
+          onReaderThemeChange={setReaderTheme}
+          currentChapter={book.heading}
+          bookTitle={book.bookTitle}
+          onBookmark={handleBookmark}
+        />
+      </div>
 
-      <div className="flex flex-1">
-        <div
-          className={cn("flex-1 overflow-y-auto px-4 py-6", "lg:px-8 lg:py-8")}
-        >
-          <article
-            className={cn("mx-auto max-w-prose", fontSizeMap[fontSize])}
-            style={{
-              maxWidth: readerTheme === "dark" ? "65ch" : "68ch",
-            }}
-          >
-            <header className="mb-8">
-              <h1
-                className={cn(
-                  "text-2xl font-bold tracking-tight",
-                  readerTheme === "sepia" && "text-[#3e2e1a]"
-                )}
-              >
-                {book.heading}
-              </h1>
-              <p
-                className={cn(
-                  "mt-2 text-sm",
-                  readerTheme === "dark" && "text-white/50",
-                  readerTheme === "sepia" && "text-[#7a6a4e]"
-                )}
-              >
-                {book.author}
-              </p>
-            </header>
+      <div className="flex flex-1 min-h-0 overflow-hidden relative">
+        <div className="flex flex-1 flex-col min-h-0 overflow-hidden relative">
+          
+          <div className="relative flex-1 min-h-0 group flex justify-center px-4 lg:px-12">
+            
+            <button
+              onClick={scrollPrevPage}
+              className={cn(
+                "hidden lg:flex absolute left-0 top-0 bottom-0 w-16 z-10 items-center justify-center opacity-0 group-hover:opacity-100 transition-all",
+                readerTheme === "dark" ? "hover:bg-white/5 text-white/50 hover:text-white" : "hover:bg-black/5 text-black/30 hover:text-black"
+              )}
+            >
+              <ChevronLeft className="h-8 w-8" />
+            </button>
 
-            {book.loading ? (
-              <div className="space-y-4 pt-4 opacity-50 animate-pulse">
-                <div className={cn("h-4 w-full rounded", readerTheme === "dark" ? "bg-white/10" : "bg-black/10")} />
-                <div className={cn("h-4 w-[95%] rounded", readerTheme === "dark" ? "bg-white/10" : "bg-black/10")} />
-                <div className={cn("h-4 w-[90%] rounded", readerTheme === "dark" ? "bg-white/10" : "bg-black/10")} />
-                <div className={cn("h-4 w-full rounded", readerTheme === "dark" ? "bg-white/10" : "bg-black/10")} />
-                <div className={cn("h-4 w-[85%] rounded", readerTheme === "dark" ? "bg-white/10" : "bg-black/10")} />
-              </div>
-            ) : (
-              <div
-                className={cn(
-                  "space-y-5",
-                  readerTheme === "sepia"
-                    ? "[&>p]:text-[#5b4636]"
-                    : "[&>p]:text-[#e2e8f0]"
-                )}
-                style={{ userSelect: "text" }}
+            {/* Контейнер без CSS-снэппинга (всё контролирует наш JS-магнит) */}
+            <div
+              ref={contentRef}
+              className="w-full max-w-[720px] h-full overflow-x-auto overflow-y-hidden [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+            >
+              <article
+                className={cn("h-full py-8", fontSizeMap[fontSize])}
+                style={{
+                  columnWidth: "720px", // Браузер сам сузит её на смартфонах
+                  columnGap: "32px",
+                  height: "100%",
+                  wordBreak: "break-word",
+                }}
               >
-                {book.text.split("\n\n").map((paragraph, i) => (
-                  <p
-                    key={i}
+                <header className="mb-8 break-inside-avoid">
+                  <h1
                     className={cn(
-                      "text-justify",
-                      readerTheme === "sepia" && "text-[#5b4636]"
+                      "text-2xl font-bold tracking-tight",
+                      readerTheme === "sepia" && "text-[#3e2e1a]"
                     )}
                   >
-                    {paragraph}
+                    {book.heading}
+                  </h1>
+                  <p
+                    className={cn(
+                      "mt-2 text-sm",
+                      readerTheme === "dark" && "text-white/50",
+                      readerTheme === "sepia" && "text-[#7a6a4e]"
+                    )}
+                  >
+                    {book.author}
                   </p>
-                ))}
-              </div>
-            )}
+                </header>
 
-            <nav className="mt-10 flex items-center justify-between border-t border-white/10 pt-6">
+                {book.loading ? (
+                  <div className="space-y-4 pt-4 opacity-50 animate-pulse">
+                    <div className={cn("h-4 w-full rounded", readerTheme === "dark" ? "bg-white/10" : "bg-black/10")} />
+                    <div className={cn("h-4 w-[95%] rounded", readerTheme === "dark" ? "bg-white/10" : "bg-black/10")} />
+                    <div className={cn("h-4 w-[90%] rounded", readerTheme === "dark" ? "bg-white/10" : "bg-black/10")} />
+                  </div>
+                ) : (
+                  <div
+                    className={cn(
+                      "space-y-5",
+                      readerTheme === "sepia"
+                        ? "[&>p]:text-[#5b4636]"
+                        : "[&>p]:text-[#e2e8f0]"
+                    )}
+                    style={{ userSelect: "text" }}
+                  >
+                    {book.text.split("\n\n").map((paragraph, i) => (
+                      <p
+                        key={i}
+                        className={cn(
+                          "text-justify leading-relaxed",
+                          readerTheme === "sepia" && "text-[#5b4636]"
+                        )}
+                      >
+                        {paragraph}
+                      </p>
+                    ))}
+                  </div>
+                )}
+              </article>
+            </div>
+
+            <button
+              onClick={scrollNextPage}
+              className={cn(
+                "hidden lg:flex absolute right-0 top-0 bottom-0 w-16 z-10 items-center justify-center opacity-0 group-hover:opacity-100 transition-all",
+                readerTheme === "dark" ? "hover:bg-white/5 text-white/50 hover:text-white" : "hover:bg-black/5 text-black/30 hover:text-black"
+              )}
+            >
+              <ChevronRight className="h-8 w-8" />
+            </button>
+          </div>
+
+          <div className={cn(
+            "shrink-0 border-t px-4 py-3 border-white/10 bg-[#090713]/80 backdrop-blur-md z-10",
+            readerTheme === "sepia" && "border-[#c4b498] bg-[#f5e6c8]/90"
+          )}>
+            <nav className="mx-auto max-w-[720px] flex items-center justify-between">
               <button
                 onClick={book.goPrev}
                 disabled={book.pageNumber === 0}
@@ -152,16 +253,16 @@ export function ReaderView({ bookId, initialPage = 0 }: { bookId: string; initia
                     "bg-[#d4c4a8] text-[#5b4636] hover:bg-[#c4b498] disabled:opacity-30"
                 )}
               >
-                ← Предыдущая
+                ← Пред. глава
               </button>
               <span
                 className={cn(
-                  "text-xs",
-                  readerTheme === "dark" && "text-white/30",
+                  "text-xs font-medium tracking-wide uppercase",
+                  readerTheme === "dark" && "text-white/40",
                   readerTheme === "sepia" && "text-[#7a6a4e]"
                 )}
               >
-                {book.totalPages > 0 ? `${book.pageNumber + 1} / ${book.totalPages}` : "..."}
+                Глава {book.pageNumber + 1}
               </span>
               <button
                 onClick={book.goNext}
@@ -174,16 +275,17 @@ export function ReaderView({ bookId, initialPage = 0 }: { bookId: string; initia
                     "bg-[#d4c4a8] text-[#5b4636] hover:bg-[#c4b498] disabled:opacity-30"
                 )}
               >
-                Следующая →
+                След. глава →
               </button>
             </nav>
-          </article>
+          </div>
         </div>
 
         <aside
           className={cn(
-            "hidden w-80 shrink-0 border-l border-white/10 p-5",
-            "lg:block"
+            "hidden w-80 shrink-0 border-l border-white/10 p-4 h-full min-h-0 overflow-hidden",
+            "lg:block",
+            readerTheme === "sepia" && "border-[#c4b498]"
           )}
         >
           <AiPanel 
@@ -219,16 +321,18 @@ export function ReaderView({ bookId, initialPage = 0 }: { bookId: string; initia
               readerTheme === "sepia" && "bg-[#e8d5b8]"
             )}
           >
-            <AiPanel 
-              bookId={bookId} 
-              page={book.pageNumber} 
-              isLive={book.isLive} 
-              bookTitle={book.bookTitle}
-              contextTitle={book.contextTitle}
-              contextIcon={book.contextIcon}
-              contextItems={book.contextItems}
-              readerTheme={readerTheme} 
-            />
+            <div className="h-[80dvh] flex flex-col overflow-hidden pb-4">
+              <AiPanel 
+                bookId={bookId} 
+                page={book.pageNumber} 
+                isLive={book.isLive} 
+                bookTitle={book.bookTitle}
+                contextTitle={book.contextTitle}
+                contextIcon={book.contextIcon}
+                contextItems={book.contextItems}
+                readerTheme={readerTheme} 
+              />
+            </div>
           </DrawerPopup>
         </Drawer>
       </div>
