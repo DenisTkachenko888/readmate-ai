@@ -1,0 +1,46 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.cache/
+
+# --- Virtual envs ---
+.venv/
+venv/
+env/
+ENV/
+
+# --- Secrets / dotenv ---
+.env
+.env.*
+!.env.example
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# --- IDE ---
+.vscode/
+.idea/
+
+# --- Project runtime data (НЕ коммитим) ---
+logs/
+
+# локальные книги (скачанные/сохранённые)
+app/books/*
+!app/books/.gitkeep
+
+# пользовательское хранилище
+app/data/user_books.json
+
+# TTS кэш (mp3)
+app/data/tts_cache/*
+!app/data/tts_cache/.gitkeep

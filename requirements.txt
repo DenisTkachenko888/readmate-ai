@@ -1,0 +1,11 @@
+aiogram==3.*
+pydantic>=2.6
+python-dotenv>=1.0
+requests>=2.32
+beautifulsoup4>=4.12
+lxml>=5.2
+nltk>=3.8
+networkx>=3.3
+edge-tts>=6.1.12
+pyttsx3>=2.90
+httpx>=0.27.0

@@ -1,0 +1,10 @@
+target-version = "py312"
+line-length = 100
+
+extend-exclude = [
+  "app/books",
+  "app/data",
+]
+
+[lint]
+select = ["E", "F", "I"]
