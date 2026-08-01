@@ -1,0 +1,9 @@
+# Components Directory
+
+Здесь размещаются переиспользуемые React компоненты.
+
+Примеры:
+- Button.tsx
+- Card.tsx
+- Modal.tsx
+- Form components

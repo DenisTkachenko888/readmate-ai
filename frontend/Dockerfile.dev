@@ -1,0 +1,10 @@
+FROM node:24-alpine
+
+RUN apk add --no-cache openssl
+
+WORKDIR /app
+
+# Код и node_modules будут примаунчены с хоста
+EXPOSE 8080
+
+CMD ["npm", "run", "dev:docker"]

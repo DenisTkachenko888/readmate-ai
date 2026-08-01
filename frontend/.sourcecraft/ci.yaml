@@ -1,0 +1,14 @@
+tokens:
+  SERVICE_CONNECTION:
+    service_connection: vibecraft-service-connection
+    scope: org
+
+
+workflows:
+  deploy:
+    tasks:
+      - name: deploy
+        cubes:
+          - name: deploy
+            script:
+              - echo "You need to deploy this via VibeCraft UI"

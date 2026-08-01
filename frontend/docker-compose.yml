@@ -1,0 +1,33 @@
+services:
+  dynamodb-local:
+    image: amazon/dynamodb-local:latest
+    container_name: dynamodb-local
+    ports:
+      - "8000:8000"
+    command: "-jar DynamoDBLocal.jar -sharedDb"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -o /dev/null http://localhost:8000/ || exit 1"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    working_dir: /app
+    command: sh -c "node node_modules/esbuild/install.js && npm run db:migrate && npm run dev:docker"
+    env_file:
+      - .env.docker
+    environment:
+      - NODE_ENV=development
+    volumes:
+      - .:/app
+      - /app/.next
+    ports:
+      - "8080:8080"
+    depends_on:
+      dynamodb-local:
+        condition: service_healthy
+
+
