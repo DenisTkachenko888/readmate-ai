@@ -62,41 +62,45 @@ async def _edit_or_send_reading(bot, chat_id: int, msg_id: int | None, text: str
 
 async def _render_page(cb_or_msg, state: FSMContext, book_id: str, page: int, total: int):
     page = max(0, min(page, max(total - 1, 0)))
-
-    book = load_book(_book_path(book_id))
-    if not book or not book.pages:
-        txt = f"<b>{html.escape(book.title if book else '—')}</b>\n<i>Текст не найден</i>"
-        mid = await _edit_or_send_reading(
-            (cb_or_msg.message.bot if isinstance(cb_or_msg, types.CallbackQuery) else cb_or_msg.bot),
-            (cb_or_msg.message.chat.id if isinstance(cb_or_msg, types.CallbackQuery) else cb_or_msg.chat.id),
-            None,
-            txt,
-            main_menu(),  # ← добавь, чтобы у пользователя была кнопка
-        )
-        await state.update_data(reading_msg_id=mid, page=0)
+    book_path = _book_path(book_id)
+    
+    if not book_path:
+        txt = "<b>Ошибка:</b> Файл книги не найден."
+        bot = cb_or_msg.message.bot if isinstance(cb_or_msg, types.CallbackQuery) else cb_or_msg.bot
+        chat_id = cb_or_msg.message.chat.id if isinstance(cb_or_msg, types.CallbackQuery) else cb_or_msg.chat.id
+        await _edit_or_send_reading(bot, chat_id, None, txt, main_menu())
         if isinstance(cb_or_msg, types.CallbackQuery):
-            await safe_cb_answer(cb_or_msg, "У этой книги нет страниц")
+            await safe_cb_answer(cb_or_msg, "Книга не найдена", show_alert=True)
         return
 
-    # автосейв
+    book = load_book(book_path)
+    if not book or not getattr(book, "pages", None) or len(book.pages) == 0:
+        txt = f"<b>{html.escape(book.title if book else 'Книга')}</b>\n<i>В этой книге нет доступных страниц для чтения.</i>"
+        bot = cb_or_msg.message.bot if isinstance(cb_or_msg, types.CallbackQuery) else cb_or_msg.bot
+        chat_id = cb_or_msg.message.chat.id if isinstance(cb_or_msg, types.CallbackQuery) else cb_or_msg.chat.id
+        mid = await _edit_or_send_reading(bot, chat_id, None, txt, main_menu())
+        await state.update_data(reading_msg_id=mid, page=0)
+        if isinstance(cb_or_msg, types.CallbackQuery):
+            await safe_cb_answer(cb_or_msg, "Текст книги пуст", show_alert=True)
+        return
+
+    # Сохраняем прогресс только если страницы действительно есть
     repo = JsonUserBooksRepository(get_settings().user_books_file)
-    user_id = cb_or_msg.from_user.id if isinstance(cb_or_msg, types.CallbackQuery) else cb_or_msg.from_user.id
+    user_id = cb_or_msg.from_user.id
     repo.set_page(user_id, book_id, page)
     await state.update_data(page=page)
 
     text = _compose_page_text(book, page, total)
     kb = nav(page, total)
-
+    
     data = await state.get_data()
     msg_id = data.get("reading_msg_id")
-
     bot = cb_or_msg.message.bot if isinstance(cb_or_msg, types.CallbackQuery) else cb_or_msg.bot
     chat_id = cb_or_msg.message.chat.id if isinstance(cb_or_msg, types.CallbackQuery) else cb_or_msg.chat.id
+    
     new_msg_id = await _edit_or_send_reading(bot, chat_id, msg_id, text, kb)
-
     if new_msg_id != msg_id:
         await state.update_data(reading_msg_id=new_msg_id)
-
     if isinstance(cb_or_msg, types.CallbackQuery):
         await safe_cb_answer(cb_or_msg)
 

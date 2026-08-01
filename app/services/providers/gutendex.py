@@ -13,16 +13,16 @@ _TLS12.maximum_version = ssl.TLSVersion.TLSv1_2  # фикс WinError 10054/121 �
 async def search(query: str, limit: int = 10) -> List[Dict[str, Any]]:
     async with httpx.AsyncClient(
         http2=False,
-        timeout=30.0,
+        timeout=60.0,          
         follow_redirects=True,
-        trust_env=False,   # важно: не использовать прокси из env/.env
-        verify=_TLS12,     # важно: форс TLS 1.2
+        trust_env=True,       
+        verify=_TLS12,
     ) as client:
         r = await client.get(API, params={"search": query})
-        r.raise_for_status()
-        data = r.json()
-    return data.get("results", [])[:limit]
-
+        r.raise_for_status()   
+        data = r.json()       
+        
+    return data.get("results", [])[:limit] 
 
 def pick_text_url(formats: dict) -> Optional[str]:
     if not isinstance(formats, dict):

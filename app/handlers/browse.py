@@ -111,9 +111,9 @@ async def add_book(cb: types.CallbackQuery):
     try:
         async with httpx.AsyncClient(
             http2=False,
-            timeout=30.0,
+            timeout=60.0,         
             follow_redirects=True,
-            trust_env=False,
+            trust_env=True,       
             verify=_TLS12,
         ) as client:
             r = await client.get(f"https://gutendex.com/books/{gid}")
@@ -139,9 +139,9 @@ async def add_book(cb: types.CallbackQuery):
     try:
         async with httpx.AsyncClient(
             http2=False,
-            timeout=60.0,
+            timeout=60.0,          
             follow_redirects=True,
-            trust_env=False,
+            trust_env=True,       
             verify=_TLS12,
         ) as client:
             resp = await client.get(url)

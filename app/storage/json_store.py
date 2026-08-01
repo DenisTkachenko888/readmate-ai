@@ -1,10 +1,12 @@
 from __future__ import annotations
+
 import json
 from pathlib import Path
 from typing import List
 from pydantic import ValidationError
+
 from app.models import UserBooks, UserBookState, Bookmark, Quote
-from app.utils.telegram import safe_cb_answer
+
 
 class JsonUserBooksRepository:
     def __init__(self, file_path: Path):
@@ -13,22 +15,35 @@ class JsonUserBooksRepository:
     def _read(self) -> UserBooks:
         if not self.file_path.exists() or self.file_path.stat().st_size == 0:
             return UserBooks()
-        raw = self.file_path.read_text(encoding="utf-8")
         try:
+            raw = self.file_path.read_text(encoding="utf-8")
             obj = json.loads(raw or "{}")
-            return UserBooks(
-                data={
-                    uid: {bid: UserBookState(**state) for bid, state in books.items()}
-                    for uid, books in obj.items()
-                }
-            )
-        except (json.JSONDecodeError, ValidationError):
+
+            # Безопасно разворачиваем случайно созданные рекурсивные ключи "data"
+            data_dict = obj
+            while isinstance(data_dict, dict) and "data" in data_dict and len(data_dict) == 1:
+                data_dict = data_dict["data"]
+
+            parsed_data = {}
+            if isinstance(data_dict, dict):
+                for uid, books in data_dict.items():
+                    if isinstance(books, dict):
+                        parsed_data[str(uid)] = {
+                            bid: UserBookState(**state) if isinstance(state, dict) else UserBookState()
+                            for bid, state in books.items()
+                        }
+            return UserBooks(data=parsed_data)
+        except (json.JSONDecodeError, ValidationError, Exception):
             return UserBooks()
 
-    def _write(self, model):
-        from json import dumps
+    def _write(self, model: UserBooks) -> None:
+        # Пишем плоский словарь {uid: {book_id: state}} без лишней обертки "data"
+        raw_payload = {
+            str(uid): {bid: state.model_dump() for bid, state in books.items()}
+            for uid, books in model.data.items()
+        }
         self.file_path.write_text(
-            dumps(model.model_dump(), ensure_ascii=False, indent=2),
+            json.dumps(raw_payload, ensure_ascii=False, indent=2),
             encoding="utf-8"
         )
 
@@ -46,7 +61,18 @@ class JsonUserBooksRepository:
         model.data[suid][book_id] = state
         self._write(model)
 
-    # bookmarks
+    def remove_book(self, user_id: int, book_id: str) -> bool:
+        """Удаляет прогресс по конкретной книге у пользователя."""
+        model = self._read()
+        suid = str(user_id)
+        if suid in model.data and book_id in model.data[suid]:
+            del model.data[suid][book_id]
+            self._write(model)
+            return True
+        return False
+
+    # ---- Закладки (Bookmarks) ----
+
     def add_bookmark(self, user_id: int, book_id: str, page: int, label: str) -> None:
         model = self._read()
         suid = str(user_id)
@@ -71,7 +97,8 @@ class JsonUserBooksRepository:
         self._write(model)
         return True
 
-    # quotes
+    # ---- Цитаты (Quotes) ----
+
     def add_quote(self, user_id: int, book_id: str, page: int, text: str, note: str | None = None) -> None:
         model = self._read()
         suid = str(user_id)
