@@ -71,6 +71,22 @@ class JsonUserBooksRepository:
             return True
         return False
 
+    # ---- Наставник (AI Friend/Tutor persona) ----
+
+    def get_persona(self, user_id: int, book_id: str) -> str:
+        data = self._read().data
+        return data.get(str(user_id), {}).get(book_id, UserBookState()).persona_style
+
+    def set_persona(self, user_id: int, book_id: str, persona: str) -> None:
+        model = self._read()
+        suid = str(user_id)
+        if suid not in model.data:
+            model.data[suid] = {}
+        state = model.data[suid].get(book_id, UserBookState())
+        state.persona_style = persona
+        model.data[suid][book_id] = state
+        self._write(model)
+
     # ---- Закладки (Bookmarks) ----
 
     def add_bookmark(self, user_id: int, book_id: str, page: int, label: str) -> None:

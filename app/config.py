@@ -21,6 +21,15 @@ class Settings(BaseModel):
     edge_voice_en: str = "en-US-JennyNeural"
     edge_voice_ru: str = "ru-RU-SvetlanaNeural"
 
+    # --- Yandex AI Studio (AI Friend / AI Tutor) ---
+    # Пусто по умолчанию -> AI-функции сами себя выключают (см. app/services/yandex/client.py),
+    # бот и API продолжают работать без них.
+    yandex_api_key: str = ""
+    yandex_folder_id: str = ""
+    yandex_base_url: str = "https://ai.api.cloud.yandex.net/v1"
+    yandex_model_lite: str = "yandexgpt-lite"
+    yandex_model_pro: str = "yandexgpt"
+
 def get_settings() -> Settings:
     load_dotenv()
     data_dir = Path(os.getenv("DATA_DIR", "app/data")).resolve()
@@ -40,7 +49,7 @@ def get_settings() -> Settings:
         books_dir=books_dir,
         user_books_file=user_books_file,
         tts_backend=os.getenv("TTS_BACKEND", "edge"),
-        edge_voice=os.getenv("EDGE_TTS_VOICE", "ru-RU-SvetlanaNeural"),  
+        edge_voice=os.getenv("EDGE_TTS_VOICE", "ru-RU-SvetlanaNeural"),
         edge_voice_default=os.getenv("EDGE_TTS_VOICE_DEFAULT", "en-US-JennyNeural"),
         edge_voice_en=os.getenv("EDGE_TTS_VOICE_EN", "en-US-JennyNeural"),
         edge_voice_ru=os.getenv("EDGE_TTS_VOICE_RU", "ru-RU-SvetlanaNeural"),
@@ -49,4 +58,9 @@ def get_settings() -> Settings:
         tts_max_parts=int(os.getenv("TTS_MAX_PARTS", "6")),
         tts_max_total_chars=int(os.getenv("TTS_MAX_TOTAL_CHARS", "6000")),
         page_len=int(os.getenv("PAGE_LEN", "1400")),
+        yandex_api_key=os.getenv("YANDEX_API_KEY", ""),
+        yandex_folder_id=os.getenv("YANDEX_FOLDER_ID", ""),
+        yandex_base_url=os.getenv("YANDEX_BASE_URL", "https://ai.api.cloud.yandex.net/v1"),
+        yandex_model_lite=os.getenv("YANDEX_MODEL_LITE", "yandexgpt-lite"),
+        yandex_model_pro=os.getenv("YANDEX_MODEL_PRO", "yandexgpt"),
     )

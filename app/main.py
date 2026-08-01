@@ -20,6 +20,7 @@ from app.net.ipv4_session import IPv4Session
 from app.handlers import start, help, reading, library, browse
 # Импорт REST API
 from app.api.routes import router as api_router
+from app.api.ai_routes import router as ai_router
 
 bot: Bot | None = None
 polling_task: asyncio.Task | None = None
@@ -75,19 +76,24 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="ReadMateAI",
     description="API для Telegram Mini App читалки",
-    version="0.2.0",
+    version="0.3.0",
     lifespan=lifespan,
 )
 
+# NB: allow_origins=["*"] — ок для хакатон-демо за прокси, куда фронтенд стучится
+# напрямую из браузера. Перед реальным запуском сузь до конкретного домена
+# фронтенда через ALLOWED_ORIGINS в .env, чтобы не отдавать API кому попало.
+_allowed = os.getenv("ALLOWED_ORIGINS", "*")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"] if _allowed == "*" else [o.strip() for o in _allowed.split(",")],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 app.include_router(api_router, prefix="/api", tags=["Books API"])
+app.include_router(ai_router, prefix="/api/ai", tags=["AI Tutor"])
 
 s = get_settings()
 app.mount("/audio", StaticFiles(directory=s.data_dir / "tts_cache"), name="audio")

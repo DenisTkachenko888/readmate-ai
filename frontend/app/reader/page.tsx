@@ -1,7 +1,6 @@
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getReaderBook } from "@/lib/reader-data";
 import { ReaderView } from "@/components/reader/reader-view";
 
 function ReaderSkeleton() {
@@ -27,13 +26,7 @@ function ReaderSkeleton() {
 }
 
 interface ReaderPageProps {
-  searchParams: Promise<{ book?: string }>;
-}
-
-async function ReaderContent({ bookId }: { bookId: string }) {
-  const book = getReaderBook(bookId);
-  if (!book) notFound();
-  return <ReaderView book={book} />;
+  searchParams: Promise<{ book?: string; page?: string }>;
 }
 
 export default async function ReaderPage({ searchParams }: ReaderPageProps) {
@@ -41,10 +34,15 @@ export default async function ReaderPage({ searchParams }: ReaderPageProps) {
   const bookId = params.book;
 
   if (!bookId) notFound();
+  
+  const initialPage = parseInt(params.page ?? "0", 10);
 
   return (
     <Suspense fallback={<ReaderSkeleton />}>
-      <ReaderContent bookId={bookId} />
+      <ReaderView 
+        bookId={bookId} 
+        initialPage={isNaN(initialPage) ? 0 : initialPage} 
+      />
     </Suspense>
   );
 }

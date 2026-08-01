@@ -7,6 +7,9 @@ import { BookOpen, MessageSquareText, ScrollText, Volume2 } from "lucide-react";
 export type ReaderAction = "explain" | "quote" | "note" | "speak";
 
 interface TextSelectionMenuProps {
+  bookId: string;
+  page: number;
+  isLive: boolean;
   onAction: (action: ReaderAction, text: string) => void;
 }
 
@@ -21,7 +24,7 @@ const actions: {
   { id: "speak", label: "Озвучить", icon: Volume2 },
 ];
 
-export function TextSelectionMenu({ onAction }: TextSelectionMenuProps) {
+export function TextSelectionMenu({ bookId, page, isLive, onAction }: TextSelectionMenuProps) {
   const [visible, setVisible] = useState(false);
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [selectedText, setSelectedText] = useState("");
@@ -47,6 +50,7 @@ export function TextSelectionMenu({ onAction }: TextSelectionMenuProps) {
 
     const rect = range.getBoundingClientRect();
     const menuWidth = 280;
+
     const x = Math.max(
       8,
       Math.min(
@@ -68,14 +72,18 @@ export function TextSelectionMenu({ onAction }: TextSelectionMenuProps) {
 
   useEffect(() => {
     if (!visible) return;
+
     const handleClickOutside = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setVisible(false);
       }
     };
+
     const handleScroll = () => setVisible(false);
+
     document.addEventListener("mousedown", handleClickOutside);
     document.addEventListener("scroll", handleScroll, true);
+
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
       document.removeEventListener("scroll", handleScroll, true);

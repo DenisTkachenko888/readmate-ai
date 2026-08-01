@@ -5,7 +5,9 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { PanelRightOpen } from "lucide-react";
 
-import type { ReaderBook } from "@/lib/reader-data";
+import { useReaderBook } from "@/lib/use-reader-book";
+import { addBookmark } from "@/lib/backend-client";
+
 import type { FontSize, ReaderTheme } from "./reader-toolbar";
 import { ReaderToolbar } from "./reader-toolbar";
 import { AiPanel } from "./ai-panel";
@@ -19,14 +21,25 @@ const fontSizeMap: Record<FontSize, string> = {
   large: "text-[20px] leading-[1.8]",
 };
 
-export function ReaderView({ book }: { book: ReaderBook }) {
-  const [currentChapterIndex, setCurrentChapterIndex] = useState(0);
+export function ReaderView({ bookId, initialPage = 0 }: { bookId: string; initialPage?: number }) {
+  const book = useReaderBook(bookId, initialPage);
+  
   const [fontSize, setFontSize] = useState<FontSize>("medium");
   const [readerTheme, setReaderTheme] = useState<ReaderTheme>("dark");
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
 
-  const chapter = book.chapters[currentChapterIndex];
-  const totalChapters = book.chapters.length;
+  const handleBookmark = async () => {
+    if (!book.isLive) {
+      toast.success("Закладка сохранена (демо-режим)");
+      return;
+    }
+    try {
+      await addBookmark(bookId, book.pageNumber, `Страница ${book.pageNumber + 1}`);
+      toast.success("Закладка успешно сохранена");
+    } catch (err) {
+      toast.error("Не удалось сохранить закладку");
+    }
+  };
 
   const handleAction = (action: ReaderAction, text: string) => {
     const truncated = text.length > 60 ? text.slice(0, 60) + "..." : text;
@@ -38,6 +51,14 @@ export function ReaderView({ book }: { book: ReaderBook }) {
     };
     toast.success(`${actionLabels[action]}: «${truncated}»`);
   };
+
+  if (book.error) {
+    return (
+      <div className="flex h-screen items-center justify-center p-8 text-red-500 text-center bg-[#090713]">
+        {book.error}
+      </div>
+    );
+  }
 
   return (
     <div
@@ -52,8 +73,9 @@ export function ReaderView({ book }: { book: ReaderBook }) {
         readerTheme={readerTheme}
         onFontSizeChange={setFontSize}
         onReaderThemeChange={setReaderTheme}
-        currentChapter={chapter.title}
-        bookTitle={book.title}
+        currentChapter={book.heading}
+        bookTitle={book.bookTitle}
+        onBookmark={handleBookmark}
       />
 
       <div className="flex flex-1">
@@ -73,7 +95,7 @@ export function ReaderView({ book }: { book: ReaderBook }) {
                   readerTheme === "sepia" && "text-[#3e2e1a]"
                 )}
               >
-                {chapter.title}
+                {book.heading}
               </h1>
               <p
                 className={cn(
@@ -86,34 +108,42 @@ export function ReaderView({ book }: { book: ReaderBook }) {
               </p>
             </header>
 
-            <div
-              className={cn(
-                "space-y-5",
-                readerTheme === "sepia"
-                  ? "[&>p]:text-[#5b4636]"
-                  : "[&>p]:text-[#e2e8f0]"
-              )}
-              style={{ userSelect: "text" }}
-            >
-              {chapter.content.split("\n\n").map((paragraph, i) => (
-                <p
-                  key={i}
-                  className={cn(
-                    "text-justify",
-                    readerTheme === "sepia" && "text-[#5b4636]"
-                  )}
-                >
-                  {paragraph}
-                </p>
-              ))}
-            </div>
+            {book.loading ? (
+              <div className="space-y-4 pt-4 opacity-50 animate-pulse">
+                <div className={cn("h-4 w-full rounded", readerTheme === "dark" ? "bg-white/10" : "bg-black/10")} />
+                <div className={cn("h-4 w-[95%] rounded", readerTheme === "dark" ? "bg-white/10" : "bg-black/10")} />
+                <div className={cn("h-4 w-[90%] rounded", readerTheme === "dark" ? "bg-white/10" : "bg-black/10")} />
+                <div className={cn("h-4 w-full rounded", readerTheme === "dark" ? "bg-white/10" : "bg-black/10")} />
+                <div className={cn("h-4 w-[85%] rounded", readerTheme === "dark" ? "bg-white/10" : "bg-black/10")} />
+              </div>
+            ) : (
+              <div
+                className={cn(
+                  "space-y-5",
+                  readerTheme === "sepia"
+                    ? "[&>p]:text-[#5b4636]"
+                    : "[&>p]:text-[#e2e8f0]"
+                )}
+                style={{ userSelect: "text" }}
+              >
+                {book.text.split("\n\n").map((paragraph, i) => (
+                  <p
+                    key={i}
+                    className={cn(
+                      "text-justify",
+                      readerTheme === "sepia" && "text-[#5b4636]"
+                    )}
+                  >
+                    {paragraph}
+                  </p>
+                ))}
+              </div>
+            )}
 
             <nav className="mt-10 flex items-center justify-between border-t border-white/10 pt-6">
               <button
-                onClick={() =>
-                  setCurrentChapterIndex((i) => Math.max(0, i - 1))
-                }
-                disabled={currentChapterIndex === 0}
+                onClick={book.goPrev}
+                disabled={book.pageNumber === 0}
                 className={cn(
                   "rounded-xl px-4 py-2 text-sm font-medium transition-all",
                   readerTheme === "dark" &&
@@ -131,15 +161,11 @@ export function ReaderView({ book }: { book: ReaderBook }) {
                   readerTheme === "sepia" && "text-[#7a6a4e]"
                 )}
               >
-                {currentChapterIndex + 1} / {totalChapters}
+                {book.totalPages > 0 ? `${book.pageNumber + 1} / ${book.totalPages}` : "..."}
               </span>
               <button
-                onClick={() =>
-                  setCurrentChapterIndex((i) =>
-                    Math.min(totalChapters - 1, i + 1)
-                  )
-                }
-                disabled={currentChapterIndex === totalChapters - 1}
+                onClick={book.goNext}
+                disabled={book.pageNumber >= book.totalPages - 1}
                 className={cn(
                   "rounded-xl px-4 py-2 text-sm font-medium transition-all",
                   readerTheme === "dark" &&
@@ -160,7 +186,16 @@ export function ReaderView({ book }: { book: ReaderBook }) {
             "lg:block"
           )}
         >
-          <AiPanel book={book} readerTheme={readerTheme} />
+          <AiPanel 
+            bookId={bookId} 
+            page={book.pageNumber} 
+            isLive={book.isLive} 
+            bookTitle={book.bookTitle}
+            contextTitle={book.contextTitle}
+            contextIcon={book.contextIcon}
+            contextItems={book.contextItems}
+            readerTheme={readerTheme} 
+          />
         </aside>
       </div>
 
@@ -184,12 +219,21 @@ export function ReaderView({ book }: { book: ReaderBook }) {
               readerTheme === "sepia" && "bg-[#e8d5b8]"
             )}
           >
-            <AiPanel book={book} readerTheme={readerTheme} />
+            <AiPanel 
+              bookId={bookId} 
+              page={book.pageNumber} 
+              isLive={book.isLive} 
+              bookTitle={book.bookTitle}
+              contextTitle={book.contextTitle}
+              contextIcon={book.contextIcon}
+              contextItems={book.contextItems}
+              readerTheme={readerTheme} 
+            />
           </DrawerPopup>
         </Drawer>
       </div>
 
-      <TextSelectionMenu onAction={handleAction} />
+      <TextSelectionMenu bookId={bookId} page={book.pageNumber} isLive={book.isLive} onAction={handleAction} />
     </div>
   );
 }

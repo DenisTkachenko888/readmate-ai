@@ -1,6 +1,6 @@
 "use client";
 
-import { AArrowDown, AArrowUp, Moon, Sun } from "lucide-react";
+import { AArrowDown, AArrowUp, Moon, Sun, Bookmark } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export type FontSize = "small" | "medium" | "large";
@@ -13,6 +13,7 @@ interface ReaderToolbarProps {
   onReaderThemeChange: (theme: ReaderTheme) => void;
   currentChapter: string;
   bookTitle: string;
+  onBookmark?: () => void; // <-- Добавили пропс для закладки
 }
 
 const fontSizes: { key: FontSize; label: string }[] = [
@@ -33,6 +34,7 @@ export function ReaderToolbar({
   onReaderThemeChange,
   currentChapter,
   bookTitle,
+  onBookmark,
 }: ReaderToolbarProps) {
   return (
     <div className="flex items-center justify-between gap-4 border-b border-white/10 bg-[#090713]/80 px-4 py-3 backdrop-blur-md">
@@ -82,6 +84,19 @@ export function ReaderToolbar({
             </button>
           ))}
         </div>
+
+        {/* Новая кнопка закладки в едином стиле */}
+        {onBookmark && (
+          <div className="flex items-center rounded-xl border border-white/10 bg-white/[0.04] p-0.5">
+            <button
+              onClick={onBookmark}
+              title="Добавить закладку"
+              className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-white/40 transition-colors hover:text-white/70"
+            >
+              <Bookmark className="h-4 w-4" />
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
