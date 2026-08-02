@@ -16,8 +16,7 @@ const nextConfig: NextConfig = {
       unoptimized: true,
     },
   }),
-  allowedDevOrigins: ["*"],
-
+  allowedDevOrigins: ["192.168.1.14"],
   devIndicators: false,
   poweredByHeader: false,
   reactStrictMode: true,
