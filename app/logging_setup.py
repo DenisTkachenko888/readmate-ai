@@ -1,5 +1,5 @@
-import logging, sys
-from app.utils.telegram import safe_cb_answer
+import logging
+import sys
 
 def setup_logging(level: str = "INFO"):
     logging.basicConfig(
@@ -7,3 +7,6 @@ def setup_logging(level: str = "INFO"):
         format="\x1b[36m%(asctime)s\x1b[0m %(levelname)s %(name)s — %(message)s",
         handlers=[logging.StreamHandler(sys.stdout)]
     )
+    logging.getLogger("httpx").setLevel("WARNING")
+    logging.getLogger("urllib3").setLevel("WARNING")
+    logging.getLogger("aiohttp").setLevel("WARNING")

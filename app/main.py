@@ -1,9 +1,10 @@
 import asyncio
 import os
 import logging
+import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import uvicorn
@@ -16,9 +17,7 @@ from app.config import get_settings
 from app.logging_setup import setup_logging
 from app.net.ipv4_session import IPv4Session
 
-# Импорт роутеров Telegram
 from app.handlers import start, help, reading, library, browse
-# Импорт REST API
 from app.api.routes import router as api_router
 from app.api.ai_routes import router as ai_router
 
@@ -37,7 +36,7 @@ def build_dispatcher() -> Dispatcher:
         reading.router,
     ]
     for r in routers:
-        r._parent_router = None  # Сбрасываем привязку для aiogram 3.x
+        r._parent_router = None
         dp.include_router(r)
     return dp
 
@@ -80,22 +79,39 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# NB: allow_origins=["*"] — ок для хакатон-демо за прокси, куда фронтенд стучится
-# напрямую из браузера. Перед реальным запуском сузь до конкретного домена
-# фронтенда через ALLOWED_ORIGINS в .env, чтобы не отдавать API кому попало.
-_allowed = os.getenv("ALLOWED_ORIGINS", "*")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"] if _allowed == "*" else [o.strip() for o in _allowed.split(",")],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+logger = logging.getLogger("readmate.api")
+
+s = get_settings()
+
+if s.cors_origins:
+    origins = [o.strip() for o in s.cors_origins.split(",") if o.strip()]
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins if "*" not in origins else ["*"],
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+        allow_headers=["*"],
+    )
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    started = time.perf_counter()
+    response = await call_next(request)
+    latency = (time.perf_counter() - started) * 1000
+    logger.info(
+        "%s %s -> %s | %.0f ms",
+        request.method, request.url.path,
+        response.status_code, latency,
+    )
+    return response
+
+@app.get("/health", tags=["System"])
+async def health():
+    return {"status": "ok"}
 
 app.include_router(api_router, prefix="/api", tags=["Books API"])
 app.include_router(ai_router, prefix="/api/ai", tags=["AI Tutor"])
 
-s = get_settings()
 app.mount("/audio", StaticFiles(directory=s.data_dir / "tts_cache"), name="audio")
 
 if __name__ == "__main__":

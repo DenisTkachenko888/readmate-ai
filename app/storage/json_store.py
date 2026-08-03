@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import List
 from pydantic import ValidationError
@@ -19,7 +20,6 @@ class JsonUserBooksRepository:
             raw = self.file_path.read_text(encoding="utf-8")
             obj = json.loads(raw or "{}")
 
-            # Безопасно разворачиваем случайно созданные рекурсивные ключи "data"
             data_dict = obj
             while isinstance(data_dict, dict) and "data" in data_dict and len(data_dict) == 1:
                 data_dict = data_dict["data"]
@@ -37,15 +37,16 @@ class JsonUserBooksRepository:
             return UserBooks()
 
     def _write(self, model: UserBooks) -> None:
-        # Пишем плоский словарь {uid: {book_id: state}} без лишней обертки "data"
         raw_payload = {
             str(uid): {bid: state.model_dump() for bid, state in books.items()}
             for uid, books in model.data.items()
         }
-        self.file_path.write_text(
+        tmp = self.file_path.with_suffix(".json.tmp")
+        tmp.write_text(
             json.dumps(raw_payload, ensure_ascii=False, indent=2),
             encoding="utf-8"
         )
+        os.replace(tmp, self.file_path)
 
     def get_page(self, user_id: int, book_id: str) -> int:
         data = self._read().data

@@ -7,23 +7,29 @@ from dotenv import load_dotenv
 class Settings(BaseModel):
     bot_token: str
     log_level: str = "INFO"
+    cors_origins: str = ""             # Белый список origin'ов (пусто = без CORS middleware)
+    rate_limit_per_minute: int = 60
+    
+    # --- Параметры и ограничения ---
+    tutor_history_depth: int = 6       # Глубина истории диалога ИИ
+    recap_stride_pages: int = 10       # Интервал автопересказа страниц
+    book_cache_size: int = 16          # Лимит книг в памяти
+    
     data_dir: Path
     books_dir: Path
     user_books_file: Path
-    tts_backend: str = "edge"  # edge|pyttsx3|none
+    tts_backend: str = "edge"          # edge|pyttsx3|none
     edge_voice: str = "ru-RU-SvetlanaNeural"
     page_len: int = 1400
     tts_max_chars: int = 1200
-    tts_pages_ahead: int = 10          # сколько страниц вперёд озвучивать
-    tts_max_parts: int = 6             # максимум mp3 частей за один запрос
-    tts_max_total_chars: int = 6000    # общий лимит символов за один запрос
+    tts_pages_ahead: int = 10
+    tts_max_parts: int = 6
+    tts_max_total_chars: int = 6000
     edge_voice_default: str = "en-US-JennyNeural"
     edge_voice_en: str = "en-US-JennyNeural"
     edge_voice_ru: str = "ru-RU-SvetlanaNeural"
 
-    # --- Yandex AI Studio (AI Friend / AI Tutor) ---
-    # Пусто по умолчанию -> AI-функции сами себя выключают (см. app/services/yandex/client.py),
-    # бот и API продолжают работать без них.
+    # --- Yandex AI Studio ---
     yandex_api_key: str = ""
     yandex_folder_id: str = ""
     yandex_base_url: str = "https://ai.api.cloud.yandex.net/v1"
@@ -45,6 +51,11 @@ def get_settings() -> Settings:
     return Settings(
         bot_token=token,
         log_level=os.getenv("LOG_LEVEL", "INFO"),
+        cors_origins=os.getenv("CORS_ORIGINS", os.getenv("ALLOWED_ORIGINS", "")),
+        rate_limit_per_minute=int(os.getenv("RATE_LIMIT_PER_MINUTE", "60")),
+        tutor_history_depth=int(os.getenv("TUTOR_HISTORY_DEPTH", "6")),
+        recap_stride_pages=int(os.getenv("RECAP_STRIDE_PAGES", "10")),
+        book_cache_size=int(os.getenv("BOOK_CACHE_SIZE", "16")),
         data_dir=data_dir,
         books_dir=books_dir,
         user_books_file=user_books_file,
