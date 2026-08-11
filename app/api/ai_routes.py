@@ -1,20 +1,10 @@
 # app/api/ai_routes.py
-"""
-REST-обвязка над app/features/tutor.py для фронтенда (AiPanel).
-
-Все эндпоинты принимают user_id — но НЕ доверяют ему напрямую с фронтенда:
-в проде user_id должен приходить уже провалидированным из Telegram initData
-на уровне Next.js BFF-прокси (frontend/app/api/backend/[...path]/route.ts),
-который подставляет trusted user_id в запрос к этому сервису. Здесь мы просто
-используем его для персонализации/сохранения прогресса — конечная проверка
-подлинности лежит на прокси-слое.
-"""
 from __future__ import annotations
 
 import logging
 from typing import Literal, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from app.config import get_settings
@@ -22,6 +12,7 @@ from app.services.reading import load_book
 from app.storage.json_store import JsonUserBooksRepository
 from app.services.yandex.client import YandexGPTUnavailable
 from app.features import tutor as ai
+from app.api.auth import get_current_user
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -51,21 +42,20 @@ def _repo() -> JsonUserBooksRepository:
 # ---------------------------------------------------------------- persona ---
 
 class PersonaBody(BaseModel):
-    user_id: int
     book_id: str
     persona: str
 
 
 @router.get("/persona")
-async def get_persona(user_id: int = Query(...), book_id: str = Query(...)):
+async def get_persona(book_id: str = Query(...), user_id: int = Depends(get_current_user)):
     return {"persona": _repo().get_persona(user_id, book_id)}
 
 
 @router.post("/persona")
-async def set_persona(body: PersonaBody):
+async def set_persona(body: PersonaBody, user_id: int = Depends(get_current_user)):
     if body.persona not in ("teacher", "friend", "philosopher", "psychologist"):
         raise HTTPException(status_code=400, detail="Неизвестная роль наставника")
-    _repo().set_persona(body.user_id, body.book_id, body.persona)
+    _repo().set_persona(user_id, body.book_id, body.persona)
     return {"ok": True}
 
 
@@ -77,7 +67,6 @@ class ChatTurn(BaseModel):
 
 
 class ChatBody(BaseModel):
-    user_id: int
     book_id: str
     page: int
     persona: str = "teacher"
@@ -86,7 +75,7 @@ class ChatBody(BaseModel):
 
 
 @router.post("/chat")
-async def chat(body: ChatBody):
+async def chat(body: ChatBody, user_id: int = Depends(get_current_user)):
     book = _load_book_or_404(body.book_id)
     page = _safe_page(book, body.page)
     try:
@@ -102,7 +91,6 @@ async def chat(body: ChatBody):
 # ------------------------------------------------------------- quick actions ---
 
 class ActionBody(BaseModel):
-    user_id: int
     book_id: str
     page: int
     action: ActionId
@@ -127,7 +115,7 @@ class ActionResponse(BaseModel):
 
 
 @router.post("/action", response_model=ActionResponse)
-async def run_action(body: ActionBody):
+async def run_action(body: ActionBody, user_id: int = Depends(get_current_user)):
     book = _load_book_or_404(body.book_id)
     page = _safe_page(book, body.page)
     try:
@@ -138,7 +126,6 @@ async def run_action(body: ActionBody):
             text = await ai.main_ideas(book, page)
             return ActionResponse(kind="text", text=text)
         if body.action == "explain":
-            # «Объяснить проще» из панели действий — упрощаем текущую страницу целиком
             text = await ai.explain_passage(book.pages[page], mode="simple")
             return ActionResponse(kind="text", text=text)
         if body.action == "terms":
@@ -158,14 +145,13 @@ async def run_action(body: ActionBody):
 # ----------------------------------------------------------------- who-is ---
 
 class WhoIsBody(BaseModel):
-    user_id: int
     book_id: str
     page: int
     query: str
 
 
 @router.post("/whois")
-async def whois(body: WhoIsBody):
+async def whois(body: WhoIsBody, user_id: int = Depends(get_current_user)):
     book = _load_book_or_404(body.book_id)
     page = _safe_page(book, body.page)
     try:
@@ -183,7 +169,7 @@ class ExplainBody(BaseModel):
 
 
 @router.post("/explain")
-async def explain(body: ExplainBody):
+async def explain(body: ExplainBody, user_id: int = Depends(get_current_user)):
     if not body.passage.strip():
         raise HTTPException(status_code=400, detail="Пустой отрывок")
     try:
@@ -204,7 +190,7 @@ class QuizCheckBody(BaseModel):
 
 
 @router.post("/quiz/check")
-async def quiz_check(body: QuizCheckBody):
+async def quiz_check(body: QuizCheckBody, user_id: int = Depends(get_current_user)):
     try:
         verdict = await ai.check_quiz_answer(
             question=body.question, expected=body.answer, explanation=body.explanation,

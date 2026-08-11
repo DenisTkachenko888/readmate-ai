@@ -1,5 +1,5 @@
 # app/api/routes.py
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from typing import List, Optional
 
@@ -8,6 +8,7 @@ from app.services.reading import list_books, load_book
 from app.storage.json_store import JsonUserBooksRepository
 from app.services.providers.gutendex import search as g_search
 from app.features.tts import synthesize_parts
+from app.api.auth import get_current_user
 
 router = APIRouter()
 
@@ -33,7 +34,7 @@ def _repo() -> JsonUserBooksRepository:
 
 
 @router.get("/library", response_model=List[BookItem])
-async def get_library(user_id: int = Query(..., description="Telegram User ID")):
+async def get_library(user_id: int = Depends(get_current_user)):
     """Возвращает список книг в библиотеке пользователя с его прогрессом."""
     s = get_settings()
     repo = _repo()
@@ -49,7 +50,7 @@ async def get_library(user_id: int = Query(..., description="Telegram User ID"))
 
 
 @router.get("/books/{book_id}/page/{page_num}", response_model=PageResponse)
-async def get_book_page(book_id: str, page_num: int, user_id: int = Query(...)):
+async def get_book_page(book_id: str, page_num: int, user_id: int = Depends(get_current_user)):
     """Отдаёт текст конкретной страницы и сохраняет прогресс пользователя."""
     s = get_settings()
     book_path = s.books_dir / f"{book_id}.json"
@@ -72,8 +73,8 @@ async def get_book_page(book_id: str, page_num: int, user_id: int = Query(...)):
 
 
 @router.get("/search")
-async def search_books(query: str = Query(..., min_length=2)):
-    """Поиск книг в Gutenberg (подготовка к добавлению в библиотеку)."""
+async def search_books(query: str = Query(..., min_length=2), user_id: int = Depends(get_current_user)):
+    """Поиск книг в Gutenberg (подготовка к добавлению в библиотеку). Защищено от спама извне."""
     try:
         results = await g_search(query, limit=10)
         return {"status": "ok", "results": results}
@@ -84,31 +85,30 @@ async def search_books(query: str = Query(..., min_length=2)):
 # --------------------------------------------------------------- bookmarks ---
 
 class BookmarkBody(BaseModel):
-    user_id: int
     book_id: str
     page: int
     label: str = ""
 
 
 @router.get("/bookmarks")
-async def list_bookmarks(user_id: int = Query(...), book_id: str = Query(...)):
+async def list_bookmarks(book_id: str = Query(...), user_id: int = Depends(get_current_user)):
     marks = _repo().list_bookmarks(user_id, book_id)
     return [{"page": m.page, "label": m.label} for m in marks]
 
 
 @router.post("/bookmarks")
-async def add_bookmark(body: BookmarkBody):
+async def add_bookmark(body: BookmarkBody, user_id: int = Depends(get_current_user)):
     s = get_settings()
     book_path = s.books_dir / f"{body.book_id}.json"
     if not book_path.exists():
         raise HTTPException(status_code=404, detail="Книга не найдена")
     label = body.label or f"Страница {body.page + 1}"
-    _repo().add_bookmark(body.user_id, body.book_id, body.page, label)
+    _repo().add_bookmark(user_id, body.book_id, body.page, label)
     return {"ok": True}
 
 
 @router.delete("/bookmarks/{idx}")
-async def delete_bookmark(idx: int, user_id: int = Query(...), book_id: str = Query(...)):
+async def delete_bookmark(idx: int, book_id: str = Query(...), user_id: int = Depends(get_current_user)):
     ok = _repo().remove_bookmark(user_id, book_id, idx)
     if not ok:
         raise HTTPException(status_code=404, detail="Закладка не найдена")
@@ -118,7 +118,6 @@ async def delete_bookmark(idx: int, user_id: int = Query(...), book_id: str = Qu
 # ------------------------------------------------------------------ quotes ---
 
 class QuoteBody(BaseModel):
-    user_id: int
     book_id: str
     page: int
     text: str
@@ -126,21 +125,21 @@ class QuoteBody(BaseModel):
 
 
 @router.get("/quotes")
-async def list_quotes(user_id: int = Query(...), book_id: str = Query(...)):
+async def list_quotes(book_id: str = Query(...), user_id: int = Depends(get_current_user)):
     quotes = _repo().list_quotes(user_id, book_id)
     return [{"page": q.page, "text": q.text, "note": q.note} for q in quotes]
 
 
 @router.post("/quotes")
-async def add_quote(body: QuoteBody):
+async def add_quote(body: QuoteBody, user_id: int = Depends(get_current_user)):
     if not body.text.strip():
         raise HTTPException(status_code=400, detail="Пустая цитата")
-    _repo().add_quote(body.user_id, body.book_id, body.page, body.text.strip(), body.note)
+    _repo().add_quote(user_id, body.book_id, body.page, body.text.strip(), body.note)
     return {"ok": True}
 
 
 @router.delete("/quotes/{idx}")
-async def delete_quote(idx: int, user_id: int = Query(...), book_id: str = Query(...)):
+async def delete_quote(idx: int, book_id: str = Query(...), user_id: int = Depends(get_current_user)):
     ok = _repo().remove_quote(user_id, book_id, idx)
     if not ok:
         raise HTTPException(status_code=404, detail="Цитата не найдена")
@@ -150,11 +149,8 @@ async def delete_quote(idx: int, user_id: int = Query(...), book_id: str = Query
 # --------------------------------------------------------------------- tts ---
 
 @router.get("/books/{book_id}/page/{page_num}/audio")
-async def get_page_audio(book_id: str, page_num: int):
-    """Синтезирует (или отдаёт уже закэшированную) озвучку страницы и
-    возвращает список URL-частей относительно /audio — их нужно проиграть
-    по очереди. Генерация "ленивая": первый запрос на страницу может занять
-    пару секунд, все следующие — мгновенные (файлы уже на диске)."""
+async def get_page_audio(book_id: str, page_num: int, user_id: int = Depends(get_current_user)):
+    """Синтезирует (или отдаёт уже закэшированную) озвучку страницы. Защищено авторизацией."""
     s = get_settings()
     book_path = s.books_dir / f"{book_id}.json"
     if not book_path.exists():
