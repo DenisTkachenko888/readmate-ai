@@ -20,14 +20,19 @@ from app.net.ipv4_session import IPv4Session
 from app.handlers import start, help, reading, library, browse
 from app.api.routes import router as api_router
 from app.api.ai_routes import router as ai_router
+from app.middlewares.db import RepositoryMiddleware
 
 bot: Bot | None = None
 polling_task: asyncio.Task | None = None
 
 
 def build_dispatcher() -> Dispatcher:
-    """Создает Dispatcher и безопасно привязывает роутеры с защитой от Uvicorn reload."""
+    """Сборка Dispatcher для работы с Uvicorn reload."""
     dp = Dispatcher()
+    
+    # Регистрируем глобальную middleware
+    dp.update.middleware(RepositoryMiddleware())
+    
     routers = [
         start.router,
         help.router,

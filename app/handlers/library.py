@@ -11,6 +11,7 @@ import json
 from app.config import get_settings
 from app.services.reading import list_books
 from app.utils.telegram import safe_cb_answer
+from app.storage.base import BaseBooksRepository
 
 router = Router()
 
@@ -120,30 +121,21 @@ async def confirm_delete(cb: types.CallbackQuery):
     await safe_cb_answer(cb)
 
 @router.callback_query(F.data.startswith("delcfm:"))
-async def delete_book(cb: types.CallbackQuery):
-    """Удаляем и сразу показываем обновлённый список — в том же сообщении."""
+async def delete_book(cb: types.CallbackQuery, repo: BaseBooksRepository):
+    """Подтвержденное удаление."""
     book_id = cb.data.split(":", 1)[1]
     file = _book_file(book_id)
-
     if file.exists():
         try:
             file.unlink()
         except Exception as e:
-            await safe_cb_answer(cb, f"Ошибка удаления: {e}")
+            await safe_cb_answer(cb, f"Ошибка: {e}")
             return
 
-    # Попытка подчистить пользовательские данные (если есть методы в репозитории)
+    # Очистка прогресса из репозитория
     try:
-        from app.storage.json_store import JsonUserBooksRepository
-        repo = JsonUserBooksRepository(get_settings().user_books_file)
-        if hasattr(repo, "purge_book"):
-            repo.purge_book(cb.from_user.id, book_id)
-        elif hasattr(repo, "remove_book"):
-            repo.remove_book(cb.from_user.id, book_id)
-        elif hasattr(repo, "set_page"):
-            repo.set_page(cb.from_user.id, book_id, 0)
+        await repo.remove_book(cb.from_user.id, book_id)
     except Exception:
         pass
 
-    # Показываем список снова (тем же сообщением)
     await _render_list_in_place(cb)

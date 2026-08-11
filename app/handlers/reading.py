@@ -2,7 +2,7 @@ from aiogram import Router, types, F
 from aiogram.fsm.context import FSMContext
 from aiogram.exceptions import TelegramBadRequest
 from app.config import get_settings
-from app.storage.json_store import JsonUserBooksRepository
+from app.storage.base import BaseBooksRepository
 from app.services.reading import load_book
 from app.keyboards.common import nav, main_menu
 from app.states import Reading
@@ -60,7 +60,7 @@ async def _edit_or_send_reading(bot, chat_id: int, msg_id: int | None, text: str
     sent = await bot.send_message(chat_id, text, reply_markup=kb, parse_mode="HTML", disable_web_page_preview=True)
     return sent.message_id
 
-async def _render_page(cb_or_msg, state: FSMContext, book_id: str, page: int, total: int):
+async def _render_page(cb_or_msg, state: FSMContext, book_id: str, page: int, total: int, repo: BaseBooksRepository):
     page = max(0, min(page, max(total - 1, 0)))
     book_path = _book_path(book_id)
     
@@ -85,9 +85,8 @@ async def _render_page(cb_or_msg, state: FSMContext, book_id: str, page: int, to
         return
 
     # Сохраняем прогресс только если страницы действительно есть
-    repo = JsonUserBooksRepository(get_settings().user_books_file)
     user_id = cb_or_msg.from_user.id
-    repo.set_page(user_id, book_id, page)
+    await repo.set_page(user_id, book_id, page) # ТЕПЕРЬ С AWAIT
     await state.update_data(page=page)
 
     text = _compose_page_text(book, page, total)
@@ -105,59 +104,55 @@ async def _render_page(cb_or_msg, state: FSMContext, book_id: str, page: int, to
         await safe_cb_answer(cb_or_msg)
 
 @router.callback_query(lambda c: c.data and c.data.startswith("open:"))
-async def open_from_list(cb: types.CallbackQuery, state: FSMContext):
+async def open_from_list(cb: types.CallbackQuery, state: FSMContext, repo: BaseBooksRepository):
     book_id = cb.data.split(":",1)[1]
     path = _book_path(book_id)
     if not path:
-        await safe_cb_answer(cb, "Файл книги не найден", show_alert=True)
+        await safe_cb_answer(cb, "Файл книги не найден.", show_alert=True)
         return
-
     book = load_book(path)
     if not book or not getattr(book, "pages", None):
-        await safe_cb_answer(cb, "У книги нет страниц", show_alert=True)
+        await safe_cb_answer(cb, "Ошибка чтения структуры книги.", show_alert=True)
         return
-
+    
     total = len(book.pages)
-
-    repo = JsonUserBooksRepository(get_settings().user_books_file)
-    page = max(0, min(repo.get_page(cb.from_user.id, book_id), total - 1))
-
+    # JsonUserBooksRepository больше не создаем руками
+    current_page = await repo.get_page(cb.from_user.id, book_id)
+    page = max(0, min(current_page, total - 1))
+    
     await state.update_data(book_id=book_id, total=total, page=page, reading_msg_id=None)
     await state.set_state(Reading.reading)
-    await _render_page(cb, state, book_id, page, total)
+    await _render_page(cb, state, book_id, page, total, repo)
 
 @router.callback_query(Reading.reading, F.data.in_({"prev_page","next_page"}))
-async def turn_page(cb: types.CallbackQuery, state: FSMContext):
+async def turn_page(cb: types.CallbackQuery, state: FSMContext, repo: BaseBooksRepository):
     data = await state.get_data()
     book_id = data.get("book_id")
     total = int(data.get("total", 0))
     if not book_id or total <= 0:
-        await safe_cb_answer(cb, "Ошибка состояния")
+        await safe_cb_answer(cb, "Нет активной книги.")
         return
 
-    # первичный источник правды — FSM; если в ней нет — читаем из repo
-    repo = JsonUserBooksRepository(get_settings().user_books_file)
     current = data.get("page")
     if current is None:
-        current = repo.get_page(cb.from_user.id, book_id)
+        current = await repo.get_page(cb.from_user.id, book_id)
     if current is None:
         current = 0
 
     if cb.data == "prev_page":
         new_page = max(0, current - 1)
         if new_page == current:
-            await safe_cb_answer(cb, "Вы на первой странице")
+            await safe_cb_answer(cb, "Это первая страница.")
             return
     else:
         new_page = min(total - 1, current + 1)
         if new_page == current:
-            await safe_cb_answer(cb, "Вы на последней странице")
+            await safe_cb_answer(cb, "Это последняя страница.")
             return
-
-    await _render_page(cb, state, book_id, new_page, total)
+    await _render_page(cb, state, book_id, new_page, total, repo)
 
 @router.callback_query(Reading.reading, F.data.startswith("jump:"))
-async def jump_pages(cb: types.CallbackQuery, state: FSMContext):
+async def jump_pages(cb: types.CallbackQuery, state: FSMContext, repo: BaseBooksRepository):
     data = await state.get_data()
     book_id = data.get("book_id")
     total = int(data.get("total", 0))
@@ -171,19 +166,17 @@ async def jump_pages(cb: types.CallbackQuery, state: FSMContext):
         await safe_cb_answer(cb)
         return
 
-    repo = JsonUserBooksRepository(get_settings().user_books_file)
     current = data.get("page")
     if current is None:
-        current = repo.get_page(cb.from_user.id, book_id)
+        current = await repo.get_page(cb.from_user.id, book_id)
     if current is None:
         current = 0
-
+        
     new_page = max(0, min(total - 1, current + delta))
     if new_page == current:
-        await safe_cb_answer(cb, "Дальше некуда")
+        await safe_cb_answer(cb, "Предел достигнут.")
         return
-
-    await _render_page(cb, state, book_id, new_page, total)
+    await _render_page(cb, state, book_id, new_page, total, repo)
 
 @router.callback_query(Reading.reading, F.data == "goto")
 async def goto_prompt(cb: types.CallbackQuery, state: FSMContext):
@@ -207,7 +200,7 @@ async def goto_prompt(cb: types.CallbackQuery, state: FSMContext):
     await safe_cb_answer(cb)
 
 @router.message(Reading.awaiting_page, F.text)
-async def goto_receive_number(msg: types.Message, state: FSMContext):
+async def goto_receive_number(msg: types.Message, state: FSMContext, repo: BaseBooksRepository):
     raw = (msg.text or "").strip().lower()
 
     # отмена
@@ -279,7 +272,7 @@ async def goto_receive_number(msg: types.Message, state: FSMContext):
     await state.update_data(book_id=book_id, total=total, page=target_index)
 
     # перерисовываем страницу (тот же механизм, что у листания)
-    await _render_page(msg, state, book_id, target_index, total)
+    await _render_page(msg, state, book_id, target_index, total, repo)
 
 # Нейтральный обработчик для «неактивной» центральной кнопки
 @router.callback_query(Reading.reading, F.data == "noop")
