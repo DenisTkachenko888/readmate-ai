@@ -1,150 +1,141 @@
-# ReadMateAI — Telegram Reading Assistant
+# ReadMateAI — AI-Powered Telegram Reading Assistant
 
-ReadMateAI is a Telegram bot that helps you **find books**, **read them inside Telegram**, save **bookmarks/quotes**, generate a **short summary (TextRank)**, and listen to pages via **TTS (Edge)**.
+ReadMateAI is a Telegram bot + Telegram Mini App that turns reading into an interactive, AI-assisted experience: find free books, read them inside Telegram, listen via TTS, and learn with an AI mentor.
 
-> Portfolio note: the repository intentionally **does not** store your downloaded books, TTS cache, or `.env` with secrets.
-
----
-
-## Features
-
-- **Search & import** books from Project Gutenberg via **Gutendex**.
-- **In-chat reading**: page navigation, “open book”, library list.
-- **Reading progress** is saved locally (per-user last page).
-- **Summary**: TextRank-like extractive summarization (NLTK + NetworkX).
-- **TTS**: audio for pages using **edge-tts** (with caching), with automatic voice selection by language.
-- **Resilience**: automatic restart on transient Telegram network errors; explicit proxy reset.
-
-Planned / in progress:
-
-- Wikisource provider (code is present, UI integration is in progress).
-- Bookmarks/quotes + export (highlights) and a more robust storage backend.
+> **Note:** this repository intentionally excludes downloaded book payloads (`*.json`), TTS audio cache (`*.mp3`) and environment secrets (`.env`).
 
 ---
 
-## Tech stack
+## 🎯 What It Does
 
-- Python **3.12+**
-- **aiogram 3.x**
-- httpx / requests / BeautifulSoup4 / lxml
-- NLTK + NetworkX (summarization)
-- edge-tts (TTS)
+- **Search & import** books from Project Gutenberg (Gutendex API)
+- **Read in Telegram** — page navigation, per-user progress, library
+- **Bookmarks & quotes** — save highlights with notes
+- **AI Mentor** — ask questions about the text, get spoiler-free recaps, main ideas, term explanations, flashcards and quizzes; 4 personas (teacher / friend / philosopher / psychologist)
+- **TTS** — listen to pages via `edge-tts` with caching and automatic voice selection by language
+- **Security** — REST API protected by HMAC-SHA256 validation of Telegram `initData`
 
 ---
 
-## Quick start
+## 🏗️ Architecture Highlights
 
-### 1) Clone & install
+1. **Single-process backend:** FastAPI (REST for the Mini App) + aiogram 3.x (bot) sharing one event loop, started/stopped via `lifespan`.
+2. **Zero-Trust auth:** the frontend never decides "whose user_id this is" — every REST endpoint validates the `X-Telegram-Init-Data` header (HMAC-SHA256, `WebAppData` secret) in a FastAPI dependency layer.
+3. **Hybrid reading modes:** Live Mode (pages fetched from the backend, progress saved server-side) and Mock Mode (offline demo books for pitches and demos).
+4. **Graceful degradation:** AI features fall back to a local TextRank summarizer when the LLM backend is unavailable; the bot and API keep working without it.
+5. **Storage abstraction:** data layer isolated for a planned migration JSON → SQLite/PostgreSQL.
+
+---
+
+## 🚀 Quick Start
+
+### Prerequisites
+
+- Python 3.12+
+- Node.js 20+
+- Telegram bot token from @BotFather
+
+### Backend
 
 ```bash
-git clone https://github.com/<YOUR_GITHUB_USERNAME>/readmate-ai.git
-cd readmate-ai
-
 python -m venv .venv
-
-# Windows
-.venv\Scripts\activate
-
-# macOS/Linux
-source .venv/bin/activate
-
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-```
 
-### 2) Configure environment
-
-Create `.env` from `.env.example` and set your Telegram token:
-
-```bash
-cp .env.example .env
-```
-
-Open `.env` and set:
-
-```env
-BOT_TOKEN=123456:ABCDEF...
-```
-
-### 3) Run the bot
-
-```bash
+cp .env.example .env        # put your BOT_TOKEN (and optional AI keys) here
 python -m app.main
 ```
 
+### Frontend (Telegram Mini App)
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open http://localhost:3000
+
+### Docker (optional)
+
+```bash
+docker-compose up --build
+```
+
 ---
 
-## Configuration (.env)
+## 🤖 Bot Commands
+
+- `/start` — welcome + main menu
+- `/browse <query>` — search books in Gutenberg
+- `/read <book_id>` — open a local book (e.g. `g_1661`)
+- `/mybooks` — your library
+
+Tip: any plain text message is treated as a quick search.
+
+---
+
+## ⚙️ Configuration
 
 | Variable | Required | Default | Meaning |
 |---|---:|---|---|
-| `BOT_TOKEN` | ✅ | — | Telegram bot token from @BotFather |
+| `BOT_TOKEN` | ✅ | — | Telegram bot token |
 | `LOG_LEVEL` | ❌ | `INFO` | Logging level |
-| `DATA_DIR` | ❌ | `app/data` | Runtime data directory |
-| `BOOKS_DIR` | ❌ | `app/books` | Where downloaded books are stored |
-| `TTS_BACKEND` | ❌ | `edge` | `edge\|pyttsx3\|none` (currently only `edge` is enabled in code) |
-| `EDGE_TTS_VOICE_DEFAULT` | ❌ | `en-US-JennyNeural` | Default voice |
-| `EDGE_TTS_VOICE_EN` | ❌ | `en-US-JennyNeural` | English voice |
-| `EDGE_TTS_VOICE_RU` | ❌ | `ru-RU-SvetlanaNeural` | Russian voice |
-| `PAGE_LEN` | ❌ | `1400` | Page length (chars) |
-| `TTS_MAX_CHARS` | ❌ | `1200` | Max chars per TTS chunk |
-| `TTS_PAGES_AHEAD` | ❌ | `10` | How many pages ahead to pre-generate audio |
-| `TTS_MAX_PARTS` | ❌ | `6` | Max mp3 chunks per request |
-| `TTS_MAX_TOTAL_CHARS` | ❌ | `6000` | Max text size per request |
+| `CORS_ORIGINS` | ❌ | *(empty = disabled)* | Comma-separated allow-list |
+| `DATA_DIR` / `BOOKS_DIR` | ❌ | `app/data` / `app/books` | Runtime directories |
+| `TTS_BACKEND` | ❌ | `edge` | `edge \| pyttsx3 \| none` |
+| `PAGE_LEN` | ❌ | `1400` | Characters per page |
+| `YANDEX_API_KEY` / `YANDEX_FOLDER_ID` | ❌ | — | AI features (optional, TextRank fallback otherwise) |
+
+Full list with defaults — see `.env.example`.
 
 ---
 
-## Bot commands
-
-- `/start` — greeting + menu
-- `/help` — help
-- `/browse <query>` — search in sources (currently Gutenberg via Gutendex)
-- `/read <book_id>` — open a local book by id (e.g., `g_1661`)
-- `/mybooks` — list local books
-
-Tip: you can also type a query without `/browse` — the bot treats it as a quick search.
-
----
-
-## Project structure
+## 📁 Project Structure
 
 ```text
-app/
-  handlers/        # aiogram routers (commands, callbacks)
-  services/        # pagination, text cleaning, reading flow
-  services/providers/  # external sources (Gutendex, Wikisource)
-  features/        # summarize, TTS
-  storage/         # JSON storage helper
-  net/             # custom IPv4-only http session
-  utils/           # Telegram helper utils
+app/                    # Python backend
+├── api/                # FastAPI routers + initData auth
+├── handlers/           # aiogram bot handlers
+├── features/           # AI tutor, summarization, TTS
+├── services/           # reading flow, providers (Gutendex, Wikisource)
+├── storage/            # user data persistence
+└── net/                # IPv4-forced HTTP session
+frontend/               # Next.js Mini App
+├── app/                # App Router (reader, demo, API proxy)
+├── components/         # UI components (Shadcn/Tailwind)
+└── lib/                # Telegram bridge, typed API client
+tests/                  # pytest suites
 ```
 
-More documentation: see [docs/](docs/).
+---
 
-Runtime directories (ignored by git):
+## 🛣️ Roadmap
 
-- `app/books/` — downloaded books (`*.json`)
-- `app/data/tts_cache/` — generated mp3 cache
-- `app/data/user_books.json` — per-user reading state (last page) and future highlights
-- `app/data/user_books.json` — user library/progress
+- [x] Zero-Trust auth via `X-Telegram-Init-Data`
+- [x] Mini App reader with Live/Mock hybrid modes
+- [x] AI mentor with personas, flashcards, quizzes
+- [ ] Migrate AI engine to Gemini 2.0 Flash
+- [ ] Migrate JSON storage to SQLite/PostgreSQL
+- [ ] Redis caching layer for AI responses
+- [ ] Webhooks instead of long polling for multi-worker scaling
 
 ---
 
-## Security & privacy
+## 🔒 Security & Privacy
 
-- **Do not commit** `.env` (it contains your bot token). This repo includes `.env.example`.
-- Local JSON files may contain user IDs and reading metadata. Treat them as private.
-- The bot connects to third-party sources (e.g., Gutendex, Project Gutenberg) to fetch book texts.
-
-See [SECURITY.md](SECURITY.md).
+- `.env` is never committed; local JSON files may contain user IDs and reading metadata — treat them as private.
+- The bot fetches book texts from third-party public sources (Project Gutenberg / Gutendex).
+- See [SECURITY.md](.github/SECURITY.md).
 
 ---
 
-## Contributing
+## 🤝 Contributing
 
-Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md).
+Contributions are welcome — see [CONTRIBUTING.md](.github/CONTRIBUTING.md). Code must pass Ruff (backend) and ESLint/Prettier (frontend).
 
 ---
 
-## License
+## 📄 License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE). Copyright (c) 2026 Denis Tkachenko.
