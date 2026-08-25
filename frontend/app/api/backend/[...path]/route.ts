@@ -1,44 +1,39 @@
 import { NextRequest, NextResponse } from "next/server";
 import { resolveUserId } from "@/lib/server/telegram-auth";
 
-export const runtime = "nodejs"; // нужен node:crypto для проверки initData
+export const runtime = "nodejs";
 
 const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:8000";
 
-/**
- * Единая прокси-точка браузер -> Next.js -> FastAPI.
- *
- * Зачем она вообще нужна, а не звать FastAPI из браузера напрямую:
- *  1. Безопасность: сюда приходит "сырой" initData, здесь (и только здесь)
- *     он проверяется по HMAC и превращается в доверенный user_id. Ни браузер,
- *     ни FastAPI сами по себе НЕ должны решать "чей это user_id".
- *  2. Инфраструктура: в Docker/проде фронтенд и бэкенд обычно в разных
- *     сетях/доменах — прокси через same-origin /api/backend/* снимает CORS
- *     и не требует светить адрес FastAPI в браузере.
- *
- * frontend/lib/backend-client.ts — единственное место на клиенте, которое
- * должно знать про путь /api/backend/*; остальной код зовёт его функции.
- */
 async function proxy(req: NextRequest, path: string[]) {
-  const auth = resolveUserId(req.headers.get("x-telegram-init-data"));
+  const initData = req.headers.get("x-telegram-init-data");
+  const auth = resolveUserId(initData);
+  
   if ("error" in auth) {
     return NextResponse.json({ detail: auth.error }, { status: auth.status });
   }
 
   const search = new URLSearchParams(req.nextUrl.search);
-  search.set("user_id", String(auth.userId)); // всегда доверенный ID, что бы ни прислал клиент
+  search.set("user_id", String(auth.userId));
 
   const targetUrl = `${BACKEND_URL}/api/${path.join("/")}?${search.toString()}`;
 
+  // Формируем заголовки, бережно сохраняя x-telegram-init-data для FastAPI
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+  };
+  if (initData) {
+    headers["x-telegram-init-data"] = initData;
+  }
+
   const init: RequestInit = {
     method: req.method,
-    headers: { "content-type": "application/json" },
+    headers: headers,
   };
 
   if (req.method !== "GET" && req.method !== "HEAD") {
     const bodyText = await req.text();
     if (bodyText) {
-      // user_id тоже дублируем в теле для POST-эндпоинтов, которые читают его из body
       try {
         const parsed = JSON.parse(bodyText);
         parsed.user_id = auth.userId;

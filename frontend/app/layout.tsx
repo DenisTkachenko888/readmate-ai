@@ -3,6 +3,7 @@ import "./globals.css";
 import { Geist } from "next/font/google";
 import { cn } from "@/lib/utils";
 import Image from "next/image";
+import Script from "next/script"; // <-- Добавлен импорт скрипта
 import { BridgeProvider } from "@/components/bridge-provider";
 import { Toaster } from "@/components/ui/sonner";
 import { TelegramInit } from "@/components/telegram-init";
@@ -25,7 +26,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="ru" className={cn("dark font-sans", geist.variable)}>
+    <html lang="ru" className={cn("dark font-sans", geist.variable)} suppressHydrationWarning>
+      <head>
+        {/* <-- Обязательный скрипт для работы внутри Telegram --> */}
+        <Script src="https://telegram.org/js/telegram-web-app.js" strategy="beforeInteractive" />
+      </head>
       <body className="antialiased min-h-screen bg-background text-foreground flex flex-col">
         <TelegramInit />
         <BridgeProvider />

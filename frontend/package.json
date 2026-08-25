@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --webpack",
     "dev:docker": "next dev -p 8080",
     "build": "next build",
     "build:static": "npm run db:generate && cross-env OUTPUT_MODE=export next build",

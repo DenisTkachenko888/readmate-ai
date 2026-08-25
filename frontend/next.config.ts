@@ -16,7 +16,13 @@ const nextConfig: NextConfig = {
       unoptimized: true,
     },
   }),
-  allowedDevOrigins: ["192.168.1.14"],
+  
+  // Добавили домен Cloudflare в белый список:
+  allowedDevOrigins: [
+    "192.168.1.14", 
+    "carter-perceived-sixth-scoop.trycloudflare.com"
+  ],
+  
   devIndicators: false,
   poweredByHeader: false,
   reactStrictMode: true,
