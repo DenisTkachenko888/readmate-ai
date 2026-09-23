@@ -1,56 +1,76 @@
 from __future__ import annotations
+
+import asyncio
 import json
 import os
-import asyncio
-import aiofiles
 from pathlib import Path
 from typing import List, Optional
 
+import aiofiles
 from pydantic import ValidationError
-from app.models import UserBooks, UserBookState, Bookmark, Quote
+
+from app.models import Bookmark, Quote, UserBooks, UserBookState
 from app.storage.base import BaseBooksRepository
+
+
+class JsonStorageError(RuntimeError):
+    """Raised when persisted user data cannot be read or validated safely."""
+
 
 class JsonUserBooksRepository(BaseBooksRepository):
     def __init__(self, file_path: Path):
         self.file_path = file_path
-        self._lock = asyncio.Lock()  # Блокировка для предотвращения Race Condition
+        self._lock = asyncio.Lock()
 
     async def _read(self) -> UserBooks:
         if not self.file_path.exists() or self.file_path.stat().st_size == 0:
             return UserBooks()
+
         try:
-            async with aiofiles.open(self.file_path, mode='r', encoding="utf-8") as f:
+            async with aiofiles.open(self.file_path, mode="r", encoding="utf-8") as f:
                 raw = await f.read()
-                
             obj = json.loads(raw or "{}")
-            data_dict = obj
-            
-            while isinstance(data_dict, dict) and "data" in data_dict and len(data_dict) == 1:
-                data_dict = data_dict["data"]
-                
-            parsed_data = {}
-            if isinstance(data_dict, dict):
-                for uid, books in data_dict.items():
-                    if isinstance(books, dict):
-                        parsed_data[str(uid)] = {
-                            bid: UserBookState(**state) if isinstance(state, dict) else UserBookState()
-                            for bid, state in books.items()
-                        }
+        except (OSError, json.JSONDecodeError) as exc:
+            raise JsonStorageError(f"Cannot read user storage: {self.file_path}") from exc
+
+        data_dict = obj
+        while isinstance(data_dict, dict) and "data" in data_dict and len(data_dict) == 1:
+            data_dict = data_dict["data"]
+
+        if not isinstance(data_dict, dict):
+            raise JsonStorageError("User storage root must be a JSON object")
+
+        try:
+            parsed_data: dict[str, dict[str, UserBookState]] = {}
+            for uid, books in data_dict.items():
+                if not isinstance(books, dict):
+                    raise JsonStorageError(f"Invalid books collection for user {uid!r}")
+                parsed_data[str(uid)] = {
+                    str(book_id): UserBookState.model_validate(state)
+                    for book_id, state in books.items()
+                }
             return UserBooks(data=parsed_data)
-        except (json.JSONDecodeError, ValidationError, Exception):
-            return UserBooks()
+        except ValidationError as exc:
+            raise JsonStorageError("User storage contains invalid data") from exc
 
     async def _write(self, model: UserBooks) -> None:
+        self.file_path.parent.mkdir(parents=True, exist_ok=True)
         raw_payload = {
             str(uid): {bid: state.model_dump() for bid, state in books.items()}
             for uid, books in model.data.items()
         }
-        tmp = self.file_path.with_suffix(".json.tmp")
-        
-        async with aiofiles.open(tmp, mode='w', encoding="utf-8") as f:
-            await f.write(json.dumps(raw_payload, ensure_ascii=False, indent=2))
-            
-        os.replace(tmp, self.file_path)
+        tmp = self.file_path.with_suffix(self.file_path.suffix + ".tmp")
+
+        try:
+            async with aiofiles.open(tmp, mode="w", encoding="utf-8") as f:
+                await f.write(json.dumps(raw_payload, ensure_ascii=False, indent=2))
+            os.replace(tmp, self.file_path)
+        except OSError as exc:
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise JsonStorageError(f"Cannot write user storage: {self.file_path}") from exc
 
     async def get_page(self, user_id: int, book_id: str) -> int:
         async with self._lock:
@@ -74,11 +94,12 @@ class JsonUserBooksRepository(BaseBooksRepository):
             suid = str(user_id)
             if suid in model.data and book_id in model.data[suid]:
                 del model.data[suid][book_id]
+                if not model.data[suid]:
+                    del model.data[suid]
                 await self._write(model)
                 return True
             return False
 
-    # ----   (AI Friend/Tutor persona) ----
     async def get_persona(self, user_id: int, book_id: str) -> str:
         async with self._lock:
             data = (await self._read()).data
@@ -95,7 +116,6 @@ class JsonUserBooksRepository(BaseBooksRepository):
             model.data[suid][book_id] = state
             await self._write(model)
 
-    # ----   (Bookmarks) ----
     async def add_bookmark(self, user_id: int, book_id: str, page: int, label: str) -> None:
         async with self._lock:
             model = await self._read()
@@ -110,7 +130,7 @@ class JsonUserBooksRepository(BaseBooksRepository):
     async def list_bookmarks(self, user_id: int, book_id: str) -> List[Bookmark]:
         async with self._lock:
             data = (await self._read()).data
-            return data.get(str(user_id), {}).get(book_id, UserBookState()).bookmarks
+            return list(data.get(str(user_id), {}).get(book_id, UserBookState()).bookmarks)
 
     async def remove_bookmark(self, user_id: int, book_id: str, idx: int) -> bool:
         async with self._lock:
@@ -123,8 +143,14 @@ class JsonUserBooksRepository(BaseBooksRepository):
             await self._write(model)
             return True
 
-    # ----   (Quotes) ----
-    async def add_quote(self, user_id: int, book_id: str, page: int, text: str, note: Optional[str] = None) -> None:
+    async def add_quote(
+        self,
+        user_id: int,
+        book_id: str,
+        page: int,
+        text: str,
+        note: Optional[str] = None,
+    ) -> None:
         async with self._lock:
             model = await self._read()
             suid = str(user_id)
@@ -138,7 +164,7 @@ class JsonUserBooksRepository(BaseBooksRepository):
     async def list_quotes(self, user_id: int, book_id: str) -> List[Quote]:
         async with self._lock:
             data = (await self._read()).data
-            return data.get(str(user_id), {}).get(book_id, UserBookState()).quotes
+            return list(data.get(str(user_id), {}).get(book_id, UserBookState()).quotes)
 
     async def remove_quote(self, user_id: int, book_id: str, idx: int) -> bool:
         async with self._lock:
