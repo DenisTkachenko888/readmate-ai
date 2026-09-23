@@ -5,7 +5,7 @@ from typing import List, Optional
 
 from app.config import get_settings
 from app.services.reading import list_books, load_book
-from app.storage.json_store import JsonUserBooksRepository
+from app.storage.factory import get_books_repository
 from app.services.providers.gutendex import search as g_search
 from app.features.tts import synthesize_parts
 from app.api.auth import get_current_user
@@ -29,20 +29,16 @@ class PageResponse(BaseModel):
     text: str
 
 
-def _repo() -> JsonUserBooksRepository:
-    return JsonUserBooksRepository(get_settings().user_books_file)
-
-
 @router.get("/library", response_model=List[BookItem])
 async def get_library(user_id: int = Depends(get_current_user)):
     """Возвращает список книг в библиотеке пользователя с его прогрессом."""
     s = get_settings()
-    repo = _repo()
+    repo = get_books_repository()
     books = list_books(s.books_dir)
 
     result = []
     for b in books:
-        current_page = repo.get_page(user_id, b.id)
+        current_page = await repo.get_page(user_id, b.id)
         result.append(
             BookItem(id=b.id, title=b.title, author=b.author, progress=current_page, total_pages=len(b.pages))
         )
@@ -65,7 +61,7 @@ async def get_book_page(book_id: str, page_num: int, user_id: int = Depends(get_
     total_pages = len(book.pages)
     safe_page = max(0, min(page_num, total_pages - 1))
 
-    _repo().set_page(user_id, book_id, safe_page)
+    await get_books_repository().set_page(user_id, book_id, safe_page)
 
     return PageResponse(
         book_id=book_id, title=book.title, page_number=safe_page, total_pages=total_pages, text=book.pages[safe_page]
@@ -92,7 +88,7 @@ class BookmarkBody(BaseModel):
 
 @router.get("/bookmarks")
 async def list_bookmarks(book_id: str = Query(...), user_id: int = Depends(get_current_user)):
-    marks = _repo().list_bookmarks(user_id, book_id)
+    marks = await get_books_repository().list_bookmarks(user_id, book_id)
     return [{"page": m.page, "label": m.label} for m in marks]
 
 
@@ -103,13 +99,13 @@ async def add_bookmark(body: BookmarkBody, user_id: int = Depends(get_current_us
     if not book_path.exists():
         raise HTTPException(status_code=404, detail="Книга не найдена")
     label = body.label or f"Страница {body.page + 1}"
-    _repo().add_bookmark(user_id, body.book_id, body.page, label)
+    await get_books_repository().add_bookmark(user_id, body.book_id, body.page, label)
     return {"ok": True}
 
 
 @router.delete("/bookmarks/{idx}")
 async def delete_bookmark(idx: int, book_id: str = Query(...), user_id: int = Depends(get_current_user)):
-    ok = _repo().remove_bookmark(user_id, book_id, idx)
+    ok = await get_books_repository().remove_bookmark(user_id, book_id, idx)
     if not ok:
         raise HTTPException(status_code=404, detail="Закладка не найдена")
     return {"ok": True}
@@ -126,7 +122,7 @@ class QuoteBody(BaseModel):
 
 @router.get("/quotes")
 async def list_quotes(book_id: str = Query(...), user_id: int = Depends(get_current_user)):
-    quotes = _repo().list_quotes(user_id, book_id)
+    quotes = await get_books_repository().list_quotes(user_id, book_id)
     return [{"page": q.page, "text": q.text, "note": q.note} for q in quotes]
 
 
@@ -134,13 +130,13 @@ async def list_quotes(book_id: str = Query(...), user_id: int = Depends(get_curr
 async def add_quote(body: QuoteBody, user_id: int = Depends(get_current_user)):
     if not body.text.strip():
         raise HTTPException(status_code=400, detail="Пустая цитата")
-    _repo().add_quote(user_id, body.book_id, body.page, body.text.strip(), body.note)
+    await get_books_repository().add_quote(user_id, body.book_id, body.page, body.text.strip(), body.note)
     return {"ok": True}
 
 
 @router.delete("/quotes/{idx}")
 async def delete_quote(idx: int, book_id: str = Query(...), user_id: int = Depends(get_current_user)):
-    ok = _repo().remove_quote(user_id, book_id, idx)
+    ok = await get_books_repository().remove_quote(user_id, book_id, idx)
     if not ok:
         raise HTTPException(status_code=404, detail="Цитата не найдена")
     return {"ok": True}
