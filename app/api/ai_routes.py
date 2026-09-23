@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 from app.config import get_settings
 from app.services.reading import load_book
-from app.storage.json_store import JsonUserBooksRepository
+from app.storage.factory import get_books_repository
 from app.services.yandex.client import YandexGPTUnavailable
 from app.features import tutor as ai
 from app.api.auth import get_current_user
@@ -35,10 +35,6 @@ def _safe_page(book, page: int) -> int:
     return max(0, min(page, len(book.pages) - 1))
 
 
-def _repo() -> JsonUserBooksRepository:
-    return JsonUserBooksRepository(get_settings().user_books_file)
-
-
 # ---------------------------------------------------------------- persona ---
 
 class PersonaBody(BaseModel):
@@ -48,14 +44,15 @@ class PersonaBody(BaseModel):
 
 @router.get("/persona")
 async def get_persona(book_id: str = Query(...), user_id: int = Depends(get_current_user)):
-    return {"persona": _repo().get_persona(user_id, book_id)}
+    persona = await get_books_repository().get_persona(user_id, book_id)
+    return {"persona": persona}
 
 
 @router.post("/persona")
 async def set_persona(body: PersonaBody, user_id: int = Depends(get_current_user)):
     if body.persona not in ("teacher", "friend", "philosopher", "psychologist"):
         raise HTTPException(status_code=400, detail="Неизвестная роль наставника")
-    _repo().set_persona(user_id, body.book_id, body.persona)
+    await get_books_repository().set_persona(user_id, body.book_id, body.persona)
     return {"ok": True}
 
 
